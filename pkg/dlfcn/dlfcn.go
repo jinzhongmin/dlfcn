@@ -13,14 +13,21 @@ import (
 	"unsafe"
 
 	"github.com/jinzhongmin/mem"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
-var RTLD_DEFAULT unsafe.Pointer
-var RTLD_NEXT unsafe.Pointer
+var DEFAULT unsafe.Pointer
+var NEXT unsafe.Pointer
+var charsetTransformer transform.Transformer
 
+func SetDefaultCharset(t transform.Transformer) {
+	charsetTransformer = t
+}
 func init() {
-	RTLD_DEFAULT = C.rtdl_default()
-	RTLD_NEXT = C.rtdl_next()
+	DEFAULT = C.rtdl_default()
+	NEXT = C.rtdl_next()
+	charsetTransformer = simplifiedchinese.GBK.NewDecoder()
 }
 
 type Mode C.int
@@ -32,14 +39,18 @@ const (
 	RTLDLocal  Mode = C.RTLD_LOCAL
 )
 
-func (m Mode) toC() C.int { return C.int(m) }
+func (m Mode) c() C.int { return C.int(m) }
 
 func DlError() error {
 	e := C.dlerror()
 	if e == nil {
 		return nil
 	}
-	return errors.New(C.GoString(e))
+	r, _, err := transform.String(charsetTransformer, C.GoString(e))
+	if err != nil {
+		return errors.New(C.GoString(e))
+	}
+	return errors.New(r)
 }
 
 type Handle struct {
@@ -47,16 +58,15 @@ type Handle struct {
 }
 
 func DlOpen(file string, mod Mode) (*Handle, error) {
-	f := C.CString(file)
-	defer mem.Free(unsafe.Pointer(f))
+	f := mem.NewStr(file)
+	defer f.Free()
 
-	h := C.dlopen(f, mod.toC())
+	h := C.dlopen((*C.char)(f.ToC()), mod.c())
 	if h == nil {
 		return nil, DlError()
 	}
-	di := new(Handle)
-	di.c = h
-	return di, nil
+
+	return &Handle{c: h}, nil
 }
 func (hd *Handle) Close() {
 	if hd.c != nil {
@@ -64,10 +74,10 @@ func (hd *Handle) Close() {
 	}
 }
 func (hd Handle) Symbol(name string) (unsafe.Pointer, error) {
-	n := C.CString(name)
-	defer mem.Free(unsafe.Pointer(n))
+	n := mem.NewStr(name)
+	defer n.Free()
 
-	p := C.dlsym(hd.c, n)
+	p := C.dlsym(hd.c, (*C.char)(n.ToC()))
 	if p == nil {
 		return nil, DlError()
 	}
@@ -75,22 +85,32 @@ func (hd Handle) Symbol(name string) (unsafe.Pointer, error) {
 	return p, nil
 }
 
-//warp dladdr
-func DlAddr(addr unsafe.Pointer) (int, string, unsafe.Pointer, string, unsafe.Pointer) {
-	di := new(C.Dl_info)
-	i := C.dladdr(addr, di)
-	fname := C.GoString(di.dli_fname)
-	fbase := di.dli_fbase
-	sname := C.GoString(di.dli_sname)
-	saddr := di.dli_saddr
-	return int(int32(i)), fname, fbase, sname, saddr
+type DlInfo struct {
+	Fname string
+	Fbase unsafe.Pointer
+	Sname string
+	Saddr unsafe.Pointer
 }
 
-//warp dlsym
+func DlAddr(addr unsafe.Pointer) (*DlInfo, error) {
+	di := new(C.Dl_info)
+	i := C.dladdr(addr, di)
+	if i == 0 {
+		return nil, errors.New("not found")
+	}
+
+	return &DlInfo{
+		Fname: C.GoString(di.dli_fname),
+		Fbase: di.dli_fbase,
+		Sname: C.GoString(di.dli_sname),
+		Saddr: di.dli_saddr,
+	}, nil
+}
+
 func DlSym(p unsafe.Pointer, name string) (unsafe.Pointer, error) {
-	n := C.CString(name)
-	defer mem.Free(unsafe.Pointer(n))
-	r := C.dlsym(p, n)
+	n := mem.NewStr(name)
+	defer n.Free()
+	r := C.dlsym(p, (*C.char)(n.ToC()))
 	if r == nil {
 		return nil, DlError()
 	}
