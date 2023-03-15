@@ -3,6 +3,7 @@ package dlfcn
 /*
 #cgo windows CFLAGS:  -I../../3rdparty/windows/dlfcn/include
 #cgo windows LDFLAGS: -L../../3rdparty/windows/dlfcn/lib -ldl
+#include <stdlib.h>
 #include <dlfcn.h>
 void *rtdl_default(){ return RTLD_DEFAULT; }
 void *rtdl_next(){ return RTLD_NEXT; }
@@ -12,7 +13,6 @@ import (
 	"errors"
 	"unsafe"
 
-	"github.com/jinzhongmin/mem"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
 )
@@ -41,6 +41,11 @@ const (
 
 func (m Mode) c() C.int { return C.int(m) }
 
+func cStr(s string) (*C.char, unsafe.Pointer) {
+	p := C.CString(s)
+	return p, unsafe.Pointer(p)
+}
+
 func DlError() error {
 	e := C.dlerror()
 	if e == nil {
@@ -58,10 +63,10 @@ type Handle struct {
 }
 
 func DlOpen(file string, mod Mode) (*Handle, error) {
-	f := mem.NewStr(file)
-	defer f.Free()
+	f, cp := cStr(file)
+	defer C.free(cp)
 
-	h := C.dlopen((*C.char)(f.ToC()), mod.c())
+	h := C.dlopen(f, mod.c())
 	if h == nil {
 		return nil, DlError()
 	}
@@ -74,10 +79,10 @@ func (hd *Handle) Close() {
 	}
 }
 func (hd Handle) Symbol(name string) (unsafe.Pointer, error) {
-	n := mem.NewStr(name)
-	defer n.Free()
+	n, cp := cStr(name)
+	defer C.free(cp)
 
-	p := C.dlsym(hd.c, (*C.char)(n.ToC()))
+	p := C.dlsym(hd.c, n)
 	if p == nil {
 		return nil, DlError()
 	}
@@ -85,32 +90,33 @@ func (hd Handle) Symbol(name string) (unsafe.Pointer, error) {
 	return p, nil
 }
 
-type DlInfo struct {
-	Fname string
-	Fbase unsafe.Pointer
-	Sname string
-	Saddr unsafe.Pointer
-}
+// type DlInfo struct {
+// 	Fname string
+// 	Fbase unsafe.Pointer
+// 	Sname string
+// 	Saddr unsafe.Pointer
+// }
 
-func DlAddr(addr unsafe.Pointer) (*DlInfo, error) {
-	di := new(C.Dl_info)
-	i := C.dladdr(addr, di)
-	if i == 0 {
-		return nil, errors.New("not found")
-	}
+// func DlAddr(addr unsafe.Pointer) (*DlInfo, error) {
+// 	di := new(C.Dl_info)
+// 	i := C.dladdr(addr, di)
+// 	if i == 0 {
+// 		return nil, errors.New("not found")
+// 	}
 
-	return &DlInfo{
-		Fname: C.GoString(di.dli_fname),
-		Fbase: di.dli_fbase,
-		Sname: C.GoString(di.dli_sname),
-		Saddr: di.dli_saddr,
-	}, nil
-}
+//		return &DlInfo{
+//			Fname: C.GoString(di.dli_fname),
+//			Fbase: di.dli_fbase,
+//			Sname: C.GoString(di.dli_sname),
+//			Saddr: di.dli_saddr,
+//		}, nil
+//	}
 
 func DlSym(p unsafe.Pointer, name string) (unsafe.Pointer, error) {
-	n := mem.NewStr(name)
-	defer n.Free()
-	r := C.dlsym(p, (*C.char)(n.ToC()))
+	n, cp := cStr(name)
+	defer C.free(cp)
+
+	r := C.dlsym(p, n)
 	if r == nil {
 		return nil, DlError()
 	}
