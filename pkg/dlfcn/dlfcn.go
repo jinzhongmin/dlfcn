@@ -5,8 +5,8 @@ package dlfcn
 #cgo windows LDFLAGS: -L../../3rdparty/windows/dlfcn/lib -ldl
 #include <stdlib.h>
 #include <dlfcn.h>
-void *rtdl_default(){ return RTLD_DEFAULT; }
-void *rtdl_next(){ return RTLD_NEXT; }
+// void *rtdl_default(){ return RTLD_DEFAULT; }
+// void *rtdl_next(){ return RTLD_NEXT; }
 */
 import "C"
 import (
@@ -17,16 +17,16 @@ import (
 	"golang.org/x/text/transform"
 )
 
-var DEFAULT unsafe.Pointer
-var NEXT unsafe.Pointer
+// var DEFAULT unsafe.Pointer
+// var NEXT unsafe.Pointer
 var charsetTransformer transform.Transformer
 
 func SetDefaultCharset(t transform.Transformer) {
 	charsetTransformer = t
 }
 func init() {
-	DEFAULT = C.rtdl_default()
-	NEXT = C.rtdl_next()
+	// DEFAULT = C.rtdl_default()
+	// NEXT = C.rtdl_next()
 	charsetTransformer = simplifiedchinese.GBK.NewDecoder()
 }
 
